@@ -1,0 +1,8 @@
+# PathMind maze
+#   S = start   G = goal   # or 1 = wall (black)   . or 0 = open (white)
+# Row 0 is the top of the maze. Lines starting with "# " and blank lines are ignored.
+S#...
+.#.#.
+...#.
+##.#.
+....G

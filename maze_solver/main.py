@@ -1,76 +1,55 @@
 # main.py
 
-import numpy as np
-import random
-from maze_env import MazeEnv
+import argparse
+import os
+import sys
 
-from plot_path import plot_maze_with_path
+from maze_env import MazeEnv, load_maze, path_to_directions
+from q_learning import train, greedy_path
 
-# Maze map
-maze = [
-    [0, 1, 0, 0, 0],
-    [0, 1, 0, 1, 0],
-    [0, 0, 0, 1, 0],
-    [1, 1, 0, 1, 0],
-    [0, 0, 0, 0, 0],
-]
-start = (0, 0)
-goal = (4, 4)
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
 
-env = MazeEnv(maze, start, goal)
-actions = [0, 1, 2, 3]  # UP, DOWN, LEFT, RIGHT
 
-# Q-table setup
-q_table = {}
-alpha = 0.1
-gamma = 0.9
-epsilon = 0.2
-episodes = 1000
+def main():
+    parser = argparse.ArgumentParser(description="Train a Q-learning agent to solve a maze.")
+    parser.add_argument("--maze", default=os.path.join(ROOT, "maze.txt"), help="maze file to solve")
+    parser.add_argument("--episodes", type=int, default=1000)
+    parser.add_argument("--alpha", type=float, default=0.1, help="learning rate")
+    parser.add_argument("--gamma", type=float, default=0.9, help="discount factor")
+    parser.add_argument("--seed", type=int, default=None, help="random seed for repeatable runs")
+    parser.add_argument("--out", default=os.path.join(ROOT, "learned_path.txt"),
+                        help="where to save the learned path (one 'row,col' per line)")
+    parser.add_argument("--save-plot", metavar="PNG", help="save the plot to an image file")
+    parser.add_argument("--no-plot", action="store_true", help="don't open the plot window")
+    args = parser.parse_args()
 
-# Initialize Q-values
-for x in range(len(maze)):
-    for y in range(len(maze[0])):
-        q_table[(x, y)] = [0 for _ in range(len(actions))]
+    maze, start, goal = load_maze(args.maze)
+    print(f"Loaded {len(maze)}x{len(maze[0])} maze, start {start}, goal {goal}")
 
-for episode in range(episodes):
-    state = env.reset()
-    done = False
+    env = MazeEnv(maze, start, goal)
+    q_table = train(env, episodes=args.episodes, alpha=args.alpha, gamma=args.gamma, seed=args.seed)
 
-    while not done:
-        if random.uniform(0, 1) < epsilon:
-            action = random.choice(actions)
-        else:
-            action = np.argmax(q_table[state])
+    path = greedy_path(env, q_table)
+    if path is None:
+        sys.exit("Training finished but the agent can't reach the goal yet. "
+                 "Try more --episodes, or check that the maze is solvable.")
 
-        next_state, reward, done = env.step(action)
+    directions = path_to_directions(path)
+    print(f"\nTraining complete. Learned path ({len(directions)} moves):")
+    print(" -> ".join(f"({x},{y})" for x, y in path))
+    print("Directions:", ", ".join(directions))
 
-        old_value = q_table[state][action]
-        next_max = max(q_table[next_state])
+    # Save path to file for send_to_arduino.py
+    with open(args.out, "w") as f:
+        for x, y in path:
+            f.write(f"{x},{y}\n")
+    print(f"Saved path to {args.out}")
 
-        new_value = old_value + alpha * (reward + gamma * next_max - old_value)
-        q_table[state][action] = new_value
+    if args.save_plot or not args.no_plot:
+        from plot_path import plot_maze_with_path
+        plot_maze_with_path(maze, path, start, goal, save_to=args.save_plot, show=not args.no_plot)
 
-        state = next_state
 
-    if episode % 100 == 0:
-        print(f"Episode {episode} done")
-
-print("\nTraining complete. Learned path from start:")
-env.reset()
-done = False
-path = []
-while not done:
-    state = env.agent_pos
-    action = np.argmax(q_table[state])
-    path.append(state)
-    _, _, done = env.step(action)
-
-path.append(goal)
-print(path)
-
-plot_maze_with_path(maze, path, start, goal)
-
-# Save path to file for Arduino or future use
-with open("learned_path.txt", "w") as f:
-    for x, y in path:
-        f.write(f"{x},{y}\n")
+if __name__ == "__main__":
+    main()
